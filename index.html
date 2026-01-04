@@ -1,0 +1,134 @@
+-- NameTag + Box ESP (Toggle with F1)
+-- Green hacker style
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+local ESP_ENABLED = true
+local Tags = {}
+
+local GREEN = Color3.fromRGB(0, 255, 70)
+local BLACK = Color3.fromRGB(0, 0, 0)
+
+-- Toggle ESP with F1
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.F1 then
+        ESP_ENABLED = not ESP_ENABLED
+
+        if not ESP_ENABLED then
+            for _, tag in pairs(Tags) do
+                tag.Box.Visible = false
+                tag.Text.Visible = false
+                tag.Bg.Visible = false
+            end
+        end
+    end
+end)
+
+-- Create ESP
+local function createTag(player)
+    if player == LocalPlayer then return end
+
+    local box = Drawing.new("Square")
+    box.Color = GREEN
+    box.Filled = false
+    box.Thickness = 1.5
+    box.Transparency = 1
+    box.Visible = false
+
+    local bg = Drawing.new("Square")
+    bg.Color = BLACK
+    bg.Filled = true
+    bg.Transparency = 0.6
+    bg.Visible = false
+
+    local text = Drawing.new("Text")
+    text.Color = GREEN
+    text.Size = 14
+    text.Center = true
+    text.Visible = false
+    text.Text = player.Name
+
+    Tags[player] = {
+        Box = box,
+        Bg = bg,
+        Text = text
+    }
+end
+
+local function removeTag(player)
+    if Tags[player] then
+        Tags[player].Box:Remove()
+        Tags[player].Bg:Remove()
+        Tags[player].Text:Remove()
+        Tags[player] = nil
+    end
+end
+
+-- Init players
+for _, p in ipairs(Players:GetPlayers()) do
+    createTag(p)
+end
+
+Players.PlayerAdded:Connect(createTag)
+Players.PlayerRemoving:Connect(removeTag)
+
+-- Update ESP
+RunService.RenderStepped:Connect(function()
+    if not ESP_ENABLED then return end
+
+    for player, tag in pairs(Tags) do
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local head = char and char:FindFirstChild("Head")
+        local hum = char and char:FindFirstChild("Humanoid")
+
+        if hrp and head and hum and hum.Health > 0 then
+            local headPos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+            local legPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+
+            if headPos.Z > 0 and legPos.Z > 0 then
+                -- Box ESP
+                local height = math.abs(headPos.Y - legPos.Y)
+                local width = height / 2
+
+                tag.Box.Size = Vector2.new(width, height)
+                tag.Box.Position = Vector2.new(
+                    headPos.X - width / 2,
+                    headPos.Y
+                )
+                tag.Box.Visible = true
+
+                -- NameTag
+                local namePos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1.5, 0))
+                local textSize = tag.Text.TextBounds
+                local padding = 6
+
+                tag.Text.Position = Vector2.new(namePos.X, namePos.Y)
+                tag.Bg.Size = Vector2.new(
+                    textSize.X + padding * 2,
+                    textSize.Y + padding
+                )
+                tag.Bg.Position = Vector2.new(
+                    namePos.X - tag.Bg.Size.X / 2,
+                    namePos.Y - tag.Bg.Size.Y / 2
+                )
+
+                tag.Text.Visible = true
+                tag.Bg.Visible = true
+            else
+                tag.Box.Visible = false
+                tag.Text.Visible = false
+                tag.Bg.Visible = false
+            end
+        else
+            tag.Box.Visible = false
+            tag.Text.Visible = false
+            tag.Bg.Visible = false
+        end
+    end
+end)
