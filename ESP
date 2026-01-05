@@ -129,7 +129,7 @@ RunService.RenderStepped:Connect(function()
                 tag.Bg.Visible = true
 
                 -- Direction ESP
-                local dirLength = (ESP_MODE == 2) and 30 or 7
+                local dirLength = (ESP_MODE == 2) and 80 or 7
                 local lookVector = head.CFrame.LookVector * dirLength
 
                 local fromPos = Camera:WorldToViewportPoint(head.Position)
@@ -156,3 +156,4 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
+
