@@ -1,4 +1,4 @@
--- NameTag + Box ESP + Direction ESP (Toggle F1)
+-- NameTag + Box ESP + Direction ESP (F1 Cycle)
 -- Green hacker style
 
 local Players = game:GetService("Players")
@@ -7,19 +7,23 @@ local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
-local ESP_ENABLED = true
+-- 1 = ESP thường | 2 = ESP + Direction dài | 3 = OFF
+local ESP_MODE = 1
 local Tags = {}
 
 local GREEN = Color3.fromRGB(0, 255, 70)
 local BLACK = Color3.fromRGB(0, 0, 0)
 
--- Toggle ESP with F1
+-- Toggle ESP with F1 (Cycle)
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.F1 then
-        ESP_ENABLED = not ESP_ENABLED
+        ESP_MODE += 1
+        if ESP_MODE > 3 then
+            ESP_MODE = 1
+        end
 
-        if not ESP_ENABLED then
+        if ESP_MODE == 3 then
             for _, tag in pairs(Tags) do
                 tag.Box.Visible = false
                 tag.Text.Visible = false
@@ -71,10 +75,9 @@ end
 
 local function removeTag(player)
     if Tags[player] then
-        Tags[player].Box:Remove()
-        Tags[player].Bg:Remove()
-        Tags[player].Text:Remove()
-        Tags[player].Dir:Remove()
+        for _, v in pairs(Tags[player]) do
+            v:Remove()
+        end
         Tags[player] = nil
     end
 end
@@ -89,7 +92,7 @@ Players.PlayerRemoving:Connect(removeTag)
 
 -- Update ESP
 RunService.RenderStepped:Connect(function()
-    if not ESP_ENABLED then return end
+    if ESP_MODE == 3 then return end
 
     for player, tag in pairs(Tags) do
         local char = player.Character
@@ -107,10 +110,7 @@ RunService.RenderStepped:Connect(function()
                 local width = height / 2
 
                 tag.Box.Size = Vector2.new(width, height)
-                tag.Box.Position = Vector2.new(
-                    headPos.X - width / 2,
-                    headPos.Y
-                )
+                tag.Box.Position = Vector2.new(headPos.X - width / 2, headPos.Y)
                 tag.Box.Visible = true
 
                 -- NameTag
@@ -119,10 +119,7 @@ RunService.RenderStepped:Connect(function()
                 local padding = 6
 
                 tag.Text.Position = Vector2.new(namePos.X, namePos.Y)
-                tag.Bg.Size = Vector2.new(
-                    textSize.X + padding * 2,
-                    textSize.Y + padding
-                )
+                tag.Bg.Size = Vector2.new(textSize.X + padding * 2, textSize.Y + padding)
                 tag.Bg.Position = Vector2.new(
                     namePos.X - tag.Bg.Size.X / 2,
                     namePos.Y - tag.Bg.Size.Y / 2
@@ -131,8 +128,10 @@ RunService.RenderStepped:Connect(function()
                 tag.Text.Visible = true
                 tag.Bg.Visible = true
 
-                -- Direction ESP (huong nhin)
-                local lookVector = head.CFrame.LookVector * 7
+                -- Direction ESP
+                local dirLength = (ESP_MODE == 2) and 30 or 7
+                local lookVector = head.CFrame.LookVector * dirLength
+
                 local fromPos = Camera:WorldToViewportPoint(head.Position)
                 local toPos = Camera:WorldToViewportPoint(head.Position + lookVector)
 
