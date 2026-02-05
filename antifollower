@@ -1,0 +1,42 @@
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+
+-- ===== PHẦN 1: chạy ngay khi Execute =====
+do
+    local part = Instance.new("Part")
+    part.Name = "LargePlate"
+    part.Anchored = true
+    part.CanCollide = true
+    part.Material = Enum.Material.Metal
+    part.Size = Vector3.new(1200, 1, 1200)
+    part.Position = Vector3.new(0, -500, 0)
+    part.Parent = workspace
+end
+
+-- ===== PHẦN 2: nhấn \ để teleport + ngã nằm ngửa =====
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode ~= Enum.KeyCode.BackSlash then return end
+
+    local char = player.Character or player.CharacterAdded:Wait()
+    local humanoid = char:WaitForChild("Humanoid")
+    local hrp = char:WaitForChild("HumanoidRootPart")
+
+    -- Teleport
+    hrp.CFrame = CFrame.new(95, -490, 45)
+
+    -- Lật ngửa (pitch +90° trục X)
+    hrp.CFrame = hrp.CFrame * CFrame.Angles(math.rad(90), 0, 0)
+
+    -- Đẩy nhẹ để ngã
+    hrp.Velocity = -hrp.CFrame.LookVector * 40 + Vector3.new(0, 10, 0)
+
+    -- Tê liệt vĩnh viễn
+    humanoid.WalkSpeed = 0
+    humanoid.JumpPower = 0
+    humanoid.AutoRotate = false
+    humanoid.PlatformStand = true
+    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+end)
