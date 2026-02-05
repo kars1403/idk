@@ -1,0 +1,12 @@
+local player = game.Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local function resetCamera()
+    local character = player.Character or player.CharacterAdded:Wait()
+    local humanoid = character:WaitForChild("Humanoid")
+
+    camera.CameraType = Enum.CameraType.Custom
+    camera.CameraSubject = humanoid
+end
+
+resetCamera()
