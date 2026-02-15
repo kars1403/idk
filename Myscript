@@ -24,7 +24,7 @@ end
 
 UserInputService.InputBegan:Connect(function(input)
 
-if input.KeyCode == Enum.KeyCode.F8 then
+if input.KeyCode == Enum.KeyCode.LeftAlt then
 
     keySet = (keySet == 1) and 2 or 1
 
