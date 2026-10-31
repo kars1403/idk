@@ -1,889 +1,728 @@
+
 local Players = game:GetService("Players")
-
 local RunService = game:GetService("RunService")
-
 local UserInputService = game:GetService("UserInputService")
 
--- ===== F8 KEY REMAP =====
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+
+-- =====================================================
+-- KEY REMAP
+-- Left Ctrl: chuyển chế độ chung
+-- Left Alt + R/E/T/V/C: tắt/bật riêng chức năng tương ứng
+-- =====================================================
 
 local keySet = 1
 
-local keybinds = {
+local actions = {"R", "V", "C", "E", "T"}
 
-[1] = { R=Enum.KeyCode.R, V=Enum.KeyCode.V, C=Enum.KeyCode.C, E=Enum.KeyCode.E, T=Enum.KeyCode.T },
-
-[2] = { R=Enum.KeyCode.Delete, V=Enum.KeyCode.Delete, C=Enum.KeyCode.Delete, E=Enum.KeyCode.Delete, T=Enum.KeyCode.Delete }
-
+local originalKeys = {
+    R = Enum.KeyCode.R,
+    V = Enum.KeyCode.V,
+    C = Enum.KeyCode.C,
+    E = Enum.KeyCode.E,
+    T = Enum.KeyCode.T
 }
 
+-- true = chức năng tạm thời bị vô hiệu hóa
+local remapped = {
+    R = false,
+    V = false,
+    C = false,
+    E = false,
+    T = false
+}
+
+local function isActionEnabled(action)
+    return not remapped[action]
+end
+
 local function getKey(action)
+    if not isActionEnabled(action) then
+        return nil
+    end
 
-return keybinds[keySet][action]
+    if keySet == 2 then
+        return Enum.KeyCode.Delete
+    end
 
+    return originalKeys[action]
 end
 
-UserInputService.InputBegan:Connect(function(input)
+-- =====================================================
+-- TRẠNG THÁI CHỨC NĂNG
+-- =====================================================
 
-if input.KeyCode == Enum.KeyCode.F8 then
+local flying = false
+local following = false
+local noclipEnabled = false
 
-    keySet = (keySet == 1) and 2 or 1
+local flySpeed = 100
+local followDistance = 2
+local currentTarget = nil
+local vToggled = false
 
+-- =====================================================
+-- NHÂN VẬT
+-- =====================================================
+
+local function getCharacter()
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart")
+    return char, hrp
 end
 
-end)
-
--- =======================
-
-local player = Players.LocalPlayer
-
--- Vị trí teleport mặc định
+-- =====================================================
+-- GUI 1: TELEPORT TỌA ĐỘ
+-- =====================================================
 
 local targetPosition = Vector3.new(0, 0, 0)
 
--- Lấy nhân vật, hỗ trợ respawn
+local teleportGui = Instance.new("ScreenGui")
+teleportGui.Name = "PositionTeleportGui"
+teleportGui.ResetOnSpawn = false
+teleportGui.Parent = player:WaitForChild("PlayerGui")
 
-local function getCharacter()
+local teleportFrame = Instance.new("Frame")
+teleportFrame.Size = UDim2.new(0, 400, 0, 75)
+teleportFrame.Position = UDim2.new(1, -400, 0, -60)
+teleportFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+teleportFrame.BorderSizePixel = 0
+teleportFrame.Active = true
+teleportFrame.Visible = true
+teleportFrame.Parent = teleportGui
 
-local char = player.Character or player.CharacterAdded:Wait()
+local function makeDraggable(frame)
+    local dragging = false
+    local dragInput
+    local dragStart
+    local startPos
 
-local hrp = char:WaitForChild("HumanoidRootPart")
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
 
-return char, hrp
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
 
-end
-
--- Tạo GUI chung
-
-local gui = Instance.new("ScreenGui")
-
-gui.Name = "PositionTeleportGui"
-
-gui.ResetOnSpawn = false
-
-gui.Parent = player:WaitForChild("PlayerGui")
-
-local frame = Instance.new("Frame")
-
-frame.Size = UDim2.new(0, 400, 0, 75)
-
-frame.Position = UDim2.new(1, -400, 0, -60) -- góc trên phải
-
-frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
-
-frame.BorderSizePixel = 0
-
-frame.Active = true -- để nhận input
-
-frame.Parent = gui
-
--- Làm GUI draggable thủ công
-
-local dragging, dragInput, dragStart, startPos
-
-local function update(input)
-
-local delta = input.Position - dragStart
-
-frame.Position = UDim2.new(
-
-    startPos.X.Scale,
-
-    startPos.X.Offset + delta.X,
-
-    startPos.Y.Scale,
-
-    startPos.Y.Offset + delta.Y
-
-)
-
-end
-
-frame.InputBegan:Connect(function(input)
-
-if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-
-    dragging = true
-
-    dragStart = input.Position
-
-    startPos = frame.Position
-
-    input.Changed:Connect(function()
-
-        if input.UserInputState == Enum.UserInputState.End then
-
-            dragging = false
-
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
         end
-
     end)
 
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
 end
 
-end)
-
-frame.InputChanged:Connect(function(input)
-
-if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-
-    dragInput = input
-
-end
-
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-
-if input == dragInput and dragging then
-
-    update(input)
-
-end
-
-end)
-
--- Mặc định GUI hiển thị
-
-frame.Visible = true
-
--- Label hiển thị vị trí hiện tại
+makeDraggable(teleportFrame)
 
 local posLabel = Instance.new("TextLabel")
-
 posLabel.Size = UDim2.new(1, -10, 0, 25)
-
 posLabel.Position = UDim2.new(0, 5, 0, 5)
-
 posLabel.BackgroundTransparency = 1
-
-posLabel.TextColor3 = Color3.fromRGB(255,255,255)
-
+posLabel.TextColor3 = Color3.new(1, 1, 1)
 posLabel.Font = Enum.Font.Gotham
-
 posLabel.TextSize = 18
-
 posLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-posLabel.TextYAlignment = Enum.TextYAlignment.Top
-
-posLabel.Parent = frame
-
--- Hàm tạo Label cố định và TextBox chỉnh số
+posLabel.Parent = teleportFrame
 
 local function createAxis(prefix, value, xOffset)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 20, 1, 0)
+    label.Position = UDim2.new(0, xOffset, 0, 10)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 18
+    label.Text = prefix .. "="
+    label.Parent = teleportFrame
 
-local label = Instance.new("TextLabel")
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(0, 50, 1, -50)
+    box.Position = UDim2.new(0, xOffset + 25, 0, 35)
+    box.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    box.TextColor3 = Color3.new(1, 1, 1)
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 18
+    box.Text = tostring(value)
+    box.ClearTextOnFocus = false
+    box.Parent = teleportFrame
 
-label.Size = UDim2.new(0, 20, 1, 0)
-
-label.Position = UDim2.new(0, xOffset, 0, 10)
-
-label.BackgroundTransparency = 1
-
-label.TextColor3 = Color3.fromRGB(255,255,255)
-
-label.Font = Enum.Font.Gotham
-
-label.TextSize = 18
-
-label.Text = prefix.."="
-
-label.TextXAlignment = Enum.TextXAlignment.Left
-
-label.Parent = frame
-
-
-
-local box = Instance.new("TextBox")
-
-box.Size = UDim2.new(0, 50, 1, -50 )
-
-box.Position = UDim2.new(0, xOffset + 25, 0, 35)
-
-box.BackgroundColor3 = Color3.fromRGB(50,50,50)
-
-box.TextColor3 = Color3.fromRGB(255,255,255)
-
-box.Font = Enum.Font.Gotham
-
-box.TextSize = 18
-
-box.Text = tostring(value)
-
-box.ClearTextOnFocus = false
-
-box.Parent = frame
-
-
-
-return box
-
+    return box
 end
 
 local xBox = createAxis("X", targetPosition.X, 10)
-
 local yBox = createAxis("Y", targetPosition.Y, 120)
-
 local zBox = createAxis("Z", targetPosition.Z, 230)
 
--- Tick button dịch chuyển
-
 local tick = Instance.new("TextButton")
-
 tick.Size = UDim2.new(0, 70, 0, 30)
-
 tick.Position = UDim2.new(0.9, -35, 0, 5)
-
-tick.BackgroundColor3 = Color3.fromRGB(0,200,0)
-
+tick.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
 tick.Text = "✔"
-
 tick.Font = Enum.Font.Gotham
-
 tick.TextSize = 30
-
-tick.TextColor3 = Color3.fromRGB(255,255,255)
-
-tick.Parent = frame
+tick.TextColor3 = Color3.new(1, 1, 1)
+tick.Parent = teleportFrame
 
 tick.MouseButton1Click:Connect(function()
+    local _, hrp = getCharacter()
+    local x = tonumber(xBox.Text)
+    local y = tonumber(yBox.Text)
+    local z = tonumber(zBox.Text)
 
-local char, hrp = getCharacter()
-
-local x = tonumber(xBox.Text)
-
-local y = tonumber(yBox.Text)
-
-local z = tonumber(zBox.Text)
-
-if x and y and z then
-
-    targetPosition = Vector3.new(x, y, z)
-
-    hrp.CFrame = CFrame.new(targetPosition)
-
-end
-
+    if x and y and z then
+        targetPosition = Vector3.new(x, y, z)
+        hrp.CFrame = CFrame.new(targetPosition)
+    end
 end)
-
--- 📌 Nút lấy vị trí hiện tại
 
 local getPos = Instance.new("TextButton")
-
 getPos.Size = UDim2.new(0, 70, 0, 30)
-
 getPos.Position = UDim2.new(0, 325, 0, 40)
-
 getPos.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
-
 getPos.Text = "📌Copy"
-
 getPos.Font = Enum.Font.Gotham
-
 getPos.TextSize = 18
-
-getPos.TextColor3 = Color3.fromRGB(255,255,255)
-
-getPos.Parent = frame
+getPos.TextColor3 = Color3.new(1, 1, 1)
+getPos.Parent = teleportFrame
 
 getPos.MouseButton1Click:Connect(function()
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
-local char = player.Character
-
-if char and char:FindFirstChild("HumanoidRootPart") then
-
-    local pos = char.HumanoidRootPart.Position
-
-    xBox.Text = tostring(math.floor(pos.X))
-
-    yBox.Text = tostring(math.floor(pos.Y))
-
-    zBox.Text = tostring(math.floor(pos.Z))
-
-end
-
+    if hrp then
+        local pos = hrp.Position
+        xBox.Text = tostring(math.floor(pos.X))
+        yBox.Text = tostring(math.floor(pos.Y))
+        zBox.Text = tostring(math.floor(pos.Z))
+    end
 end)
-
--- Cập nhật vị trí hiện tại mỗi frame
 
 RunService.RenderStepped:Connect(function()
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
-local char = player.Character
-
-if char and char:FindFirstChild("HumanoidRootPart") then
-
-    local pos = char.HumanoidRootPart.Position
-
-    posLabel.Text = string.format(" X= %d Y= %d	Z= %d", pos.X, pos.Y, pos.Z)
-
-end
-
+    if hrp then
+        local pos = hrp.Position
+        posLabel.Text = string.format(
+            " X= %d Y= %d        Z= %d",
+            pos.X, pos.Y, pos.Z
+        )
+    end
 end)
 
--- Hỗ trợ respawn, GUI vẫn hoạt động
-
-player.CharacterAdded:Connect(function()
-
-local char, hrp = getCharacter()
-
-end)
-
--- Bật/tắt GUI khi nhấn Right Ctrl
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-
-if input.KeyCode == Enum.KeyCode.RightControl then
-
-    frame.Visible = not frame.Visible
-
-end
-
-end)
-
-local Players = game:GetService("Players")
-
-local RunService = game:GetService("RunService")
-
-local UserInputService = game:GetService("UserInputService")
-
-local player = Players.LocalPlayer
-
-local mouse = player:GetMouse()
-
-local flying = false
-
-local flySpeed = 100
-
-local followDistance = 2
-
-local following = false
-
-local currentTarget = nil
-
-local noclipEnabled = false
-
-local vToggled = false -- trạng thái toggle V
+-- =====================================================
+-- FLY
+-- =====================================================
 
 player.CameraMaxZoomDistance = 1e9
-
 player.CameraMinZoomDistance = 0.5
-
--- Teleport locations cố định
-
-local teleportLocations = {
-
-V1 = Vector3.new(10000, 0, 0),
-
-V2 = Vector3.new(100, 442, -10)
-
-}
-
--- Fly setup
 
 local bg, bv, flyConn
 
-local function createFlyParts(hrp)
-
-bg = Instance.new("BodyGyro")
-
-bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-
-bg.P = 10000
-
-bg.CFrame = hrp.CFrame
-
-bg.Parent = hrp
-
-
-
-bv = Instance.new("BodyVelocity")
-
-bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-
-bv.Velocity = Vector3.new(0, 0, 0)
-
-bv.Parent = hrp
-
-end
-
 local function startFlying()
+    if flying then return end
 
-if flying then return end
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart")
 
-flying = true
+    flying = true
 
-local character = player.Character or player.CharacterAdded:Wait()
+    bg = Instance.new("BodyGyro")
+    bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bg.P = 10000
+    bg.CFrame = hrp.CFrame
+    bg.Parent = hrp
 
-local hrp = character:WaitForChild("HumanoidRootPart")
+    bv = Instance.new("BodyVelocity")
+    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    bv.Velocity = Vector3.zero
+    bv.Parent = hrp
 
-createFlyParts(hrp)
+    flyConn = RunService.RenderStepped:Connect(function()
+        if not flying or not bg or not bv then return end
 
-flyConn = RunService.RenderStepped:Connect(function()
-
-    if not flying then return end
-
-    local cam = workspace.CurrentCamera
-
-    bg.CFrame = cam.CFrame
-
-    bv.Velocity = cam.CFrame.LookVector * flySpeed
-
-end)
-
+        local camera = workspace.CurrentCamera
+        bg.CFrame = camera.CFrame
+        bv.Velocity = camera.CFrame.LookVector * flySpeed
+    end)
 end
 
 local function stopFlying()
+    flying = false
 
-flying = false
-
-if flyConn then flyConn:Disconnect() end
-
-if bg then bg:Destroy() end
-
-if bv then bv:Destroy() end
-
-end
-
--- Follow player
-
-local function getClosestPlayerInSight()
-
-local camera = workspace.CurrentCamera
-
-local closestPlayer = nil
-
-local smallestAngle = math.huge
-
-for _, otherPlayer in ipairs(Players:GetPlayers()) do
-
-    if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
-
-        local hrp = otherPlayer.Character.HumanoidRootPart
-
-        local dirToPlayer = (hrp.Position - camera.CFrame.Position).Unit
-
-        local angle = math.acos(camera.CFrame.LookVector:Dot(dirToPlayer))
-
-        if angle < math.rad(30) and angle < smallestAngle then
-
-            smallestAngle = angle
-
-            closestPlayer = otherPlayer
-
-        end
-
+    if flyConn then
+        flyConn:Disconnect()
+        flyConn = nil
     end
 
+    if bg then
+        bg:Destroy()
+        bg = nil
+    end
+
+    if bv then
+        bv:Destroy()
+        bv = nil
+    end
 end
 
-return closestPlayer
+-- =====================================================
+-- FOLLOW
+-- =====================================================
 
+local function getClosestPlayerInSight()
+    local camera = workspace.CurrentCamera
+    local closestPlayer = nil
+    local smallestAngle = math.huge
+
+    for _, otherPlayer in ipairs(Players:GetPlayers()) do
+        if otherPlayer ~= player
+            and otherPlayer.Character
+            and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
+
+            local hrp = otherPlayer.Character.HumanoidRootPart
+            local direction = hrp.Position - camera.CFrame.Position
+
+            if direction.Magnitude > 0 then
+                local angle = math.acos(math.clamp(
+                    camera.CFrame.LookVector:Dot(direction.Unit),
+                    -1,
+                    1
+                ))
+
+                if angle < math.rad(30) and angle < smallestAngle then
+                    smallestAngle = angle
+                    closestPlayer = otherPlayer
+                end
+            end
+        end
+    end
+
+    return closestPlayer
 end
 
 RunService.RenderStepped:Connect(function()
+    if not following or not currentTarget then return end
 
-if following and currentTarget and currentTarget.Character and currentTarget.Character:FindFirstChild("HumanoidRootPart") then
+    local targetChar = currentTarget.Character
+    local myChar = player.Character
 
-    local targetHRP = currentTarget.Character.HumanoidRootPart
+    local targetHRP = targetChar
+        and targetChar:FindFirstChild("HumanoidRootPart")
 
-    local myChar = player.Character or player.CharacterAdded:Wait()
+    local myHRP = myChar
+        and myChar:FindFirstChild("HumanoidRootPart")
 
-    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-
-    if myHRP then
-
+    if targetHRP and myHRP then
         local offset = -targetHRP.CFrame.LookVector * followDistance
-
         local newPos = targetHRP.Position + offset
-
         myHRP.CFrame = CFrame.new(newPos, targetHRP.Position)
-
     end
-
-end
-
 end)
 
-player.CharacterAdded:Connect(function()
+-- =====================================================
+-- TELEPORT V / C
+-- =====================================================
 
-if flying then
+local teleportLocations = {
+    V1 = Vector3.new(10000, 0, 0),
+    V2 = Vector3.new(100, 442, -10)
+}
 
-    task.wait(1)
+local function teleportCharacter()
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:FindFirstChild("HumanoidRootPart")
 
-    startFlying()
+    if not hrp then return end
 
-end
-
-end)
-
--- Teleport
-
-local function teleportCharacter(key)
-
-local character = player.Character or player.CharacterAdded:Wait()
-
-local hrp = character:FindFirstChild("HumanoidRootPart")
-
-if hrp then
-
-    if key == "V" then
-
-        if not vToggled then
-
-            hrp.CFrame = CFrame.new(teleportLocations.V1)
-
-            vToggled = true
-
-        else
-
-            hrp.CFrame = CFrame.new(teleportLocations.V2)
-
-            vToggled = false
-
-        end
-
+    if not vToggled then
+        hrp.CFrame = CFrame.new(teleportLocations.V1)
+        vToggled = true
+    else
+        hrp.CFrame = CFrame.new(teleportLocations.V2)
+        vToggled = false
     end
-
-end
-
 end
 
 local function teleportToMouse()
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
-local char = player.Character
-
-if char and char:FindFirstChild("HumanoidRootPart") and mouse.Hit then
-
-    char.HumanoidRootPart.CFrame = CFrame.new(mouse.Hit.p + Vector3.new(0, 3, 0))
-
+    if hrp and mouse.Hit then
+        hrp.CFrame = CFrame.new(
+            mouse.Hit.Position + Vector3.new(0, 3, 0)
+        )
+    end
 end
 
-end
-
--- Noclip
+-- =====================================================
+-- NOCLIP
+-- =====================================================
 
 local noclipConn
 
 local function setNoclip(state)
+    noclipEnabled = state
 
-noclipEnabled = state
+    if noclipConn then
+        noclipConn:Disconnect()
+        noclipConn = nil
+    end
 
-if noclipConn then noclipConn:Disconnect() end
+    if state then
+        noclipConn = RunService.Stepped:Connect(function()
+            local char = player.Character
 
-if state then
-
-    noclipConn = RunService.Stepped:Connect(function()
-
-        local character = player.Character
-
-        if character then
-
-            for _, part in pairs(character:GetDescendants()) do
-
-                if part:IsA("BasePart") then
-
-                    part.CanCollide = false
-
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
                 end
-
             end
-
-        end
-
-    end)
-
+        end)
+    end
 end
 
-end
+-- =====================================================
+-- GUI 2: FLY MENU
+-- =====================================================
 
--- GUI
-
-local guiFrame, infoLabels
+local guiFrame
+local infoLabels
 
 local function updateInfo()
+    if not infoLabels then return end
 
-infoLabels[1].Text = "Fly speed: " .. tostring(flySpeed)
-
-infoLabels[2].Text = "Noclip: " .. (noclipEnabled and "on" or "off")
-
-infoLabels[3].Text = "Follow distance: " .. tostring(followDistance)
-
-infoLabels[4].Text = "E to follow"
-
-infoLabels[5].Text = "R to fly"
-
-infoLabels[6].Text = "T to turn on/off noclip "
-
-infoLabels[7].Text = "C to teleport"
-
-infoLabels[8].Text = "V tp to void, V again tp to ground (For TSB)" 
-
-infoLabels[9].Text = "Rightshift to turn on/off menu"
-
-infoLabels[10].Text = "F8 to pause/continue the script"
-
+    infoLabels[1].Text = "Fly speed: " .. tostring(flySpeed)
+    infoLabels[2].Text = "Noclip: " .. (noclipEnabled and "on" or "off")
+    infoLabels[3].Text = "Follow distance: " .. tostring(followDistance)
+    infoLabels[4].Text = "E to follow"
+    infoLabels[5].Text = "R to fly"
+    infoLabels[6].Text = "T to turn on/off noclip"
+    infoLabels[7].Text = "C to teleport"
+    infoLabels[8].Text = "V tp to void, V again tp to ground"
+    infoLabels[9].Text = "RightShift: cycle menus"
+    infoLabels[10].Text = "Left Ctrl: switch key set"
 end
 
-local function makeDraggable(frame)
+local function createFlyGUI()
+    local menuGui = Instance.new("ScreenGui")
+    menuGui.Name = "FlyMenuGui"
+    menuGui.ResetOnSpawn = false
+    menuGui.Parent = player:WaitForChild("PlayerGui")
 
-local dragging, dragInput, dragStart, startPos
+    guiFrame = Instance.new("Frame")
+    guiFrame.Size = UDim2.new(0, 300, 0, 430)
+    guiFrame.Position = UDim2.new(1, -300, 0, 242)
+    guiFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    guiFrame.BorderSizePixel = 0
+    guiFrame.Visible = false
+    guiFrame.Parent = menuGui
 
+    makeDraggable(guiFrame)
 
+    infoLabels = {}
 
-frame.InputBegan:Connect(function(input)
+    for i = 1, 10 do
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, -10, 0, 25)
+        lbl.Position = UDim2.new(0, 5, 0, 5 + (i - 1) * 30)
+        lbl.BackgroundTransparency = 1
+        lbl.TextColor3 = Color3.new(1, 1, 1)
+        lbl.Font = Enum.Font.Gotham
+        lbl.TextSize = 14
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Parent = guiFrame
+        infoLabels[i] = lbl
+    end
 
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    local function createButton(name, text, yPos)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Size = UDim2.new(1, -10, 0, 35)
+        btn.Position = UDim2.new(0, 5, 0.02, yPos)
+        btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 14
+        btn.Text = text
+        btn.Parent = guiFrame
+        return btn
+    end
 
-        dragging = true
+    local increaseBtn = createButton("IncreaseSpeedBtn", "faster", 300)
+    local decreaseBtn = createButton("DecreaseSpeedBtn", "slower", 340)
+    local adjustFollowBtn =
+        createButton("AdjustFollowBtn", "adjust distance (max:10)", 380)
 
-        dragStart = input.Position
+    increaseBtn.MouseButton1Click:Connect(function()
+        flySpeed += 50
+        updateInfo()
+    end)
 
-        startPos = frame.Position
+    decreaseBtn.MouseButton1Click:Connect(function()
+        flySpeed = math.max(0, flySpeed - 50)
+        updateInfo()
+    end)
 
+    adjustFollowBtn.MouseButton1Click:Connect(function()
+        followDistance += 1
+        if followDistance > 10 then
+            followDistance = 1
+        end
+        updateInfo()
+    end)
 
+    updateInfo()
+end
 
-        input.Changed:Connect(function()
+createFlyGUI()
 
-            if input.UserInputState == Enum.UserInputState.End then
+-- =====================================================
+-- GUI 3: STATUS NEON
+-- =====================================================
 
-                dragging = false
+local statusGui = Instance.new("ScreenGui")
+statusGui.Name = "StatusNeonGui"
+statusGui.ResetOnSpawn = false
+statusGui.Parent = player:WaitForChild("PlayerGui")
 
+local statusFrame = Instance.new("Frame")
+statusFrame.Size = UDim2.new(0, 160, 0, 120)
+statusFrame.Position = UDim2.new(1, -320, 0, 242)
+statusFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+statusFrame.BorderSizePixel = 0
+statusFrame.Visible = false
+statusFrame.Active = true
+statusFrame.Parent = statusGui
+
+Instance.new("UICorner", statusFrame).CornerRadius = UDim.new(0, 8)
+
+local statusStroke = Instance.new("UIStroke")
+statusStroke.Color = Color3.fromRGB(0, 220, 170)
+statusStroke.Thickness = 1.5
+statusStroke.Parent = statusFrame
+
+makeDraggable(statusFrame)
+
+local statusTitle = Instance.new("TextLabel")
+statusTitle.Size = UDim2.new(1, -12, 0, 25)
+statusTitle.Position = UDim2.new(0, 8, 0, 3)
+statusTitle.BackgroundTransparency = 1
+statusTitle.Text = "STATUS"
+statusTitle.TextColor3 = Color3.fromRGB(0, 255, 200)
+statusTitle.Font = Enum.Font.GothamBold
+statusTitle.TextSize = 14
+statusTitle.TextXAlignment = Enum.TextXAlignment.Left
+statusTitle.Parent = statusFrame
+
+local statusRows = {}
+
+local function createStatusRow(action, labelText, y)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, -12, 0, 25)
+    row.Position = UDim2.new(0, 6, 0, y)
+    row.BackgroundTransparency = 1
+    row.Parent = statusFrame
+
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0, 10, 0, 10)
+    dot.Position = UDim2.new(0, 3, 0.5, -5)
+    dot.BorderSizePixel = 0
+    dot.Parent = row
+
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+    local glow = Instance.new("UIStroke")
+    glow.Thickness = 2
+    glow.Parent = dot
+
+    local name = Instance.new("TextLabel")
+    name.Size = UDim2.new(0, 82, 1, 0)
+    name.Position = UDim2.new(0, 20, 0, 0)
+    name.BackgroundTransparency = 1
+    name.Text = labelText
+    name.TextColor3 = Color3.fromRGB(235, 235, 235)
+    name.Font = Enum.Font.Gotham
+    name.TextSize = 12
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.Parent = row
+
+    local state = Instance.new("TextLabel")
+    state.Size = UDim2.new(0, 38, 1, 0)
+    state.Position = UDim2.new(1, -42, 0, 0)
+    state.BackgroundTransparency = 1
+    state.Font = Enum.Font.GothamBold
+    state.TextSize = 11
+    state.TextXAlignment = Enum.TextXAlignment.Right
+    state.Parent = row
+
+    statusRows[action] = {
+        dot = dot,
+        glow = glow,
+        state = state
+    }
+end
+
+createStatusRow("R", "Fly (R)", 30)
+createStatusRow("E", "Follow (E)", 57)
+createStatusRow("T", "Noclip (T)", 84)
+
+local function updateStatus()
+    local states = {
+        R = flying,
+        E = following,
+        T = noclipEnabled
+    }
+
+    for action, isOn in pairs(states) do
+        local row = statusRows[action]
+
+        if row then
+            local color
+
+            if isOn then
+                color = Color3.fromRGB(40, 255, 90)
+                row.state.Text = "ON"
+            else
+                color = Color3.fromRGB(255, 55, 65)
+                row.state.Text = "OFF"
             end
 
-        end)
-
+            row.dot.BackgroundColor3 = color
+            row.glow.Color = color
+            row.state.TextColor3 = color
+        end
     end
-
-end)
-
-
-
-frame.InputChanged:Connect(function(input)
-
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-
-        dragInput = input
-
-    end
-
-end)
-
-
-
-UserInputService.InputChanged:Connect(function(input)
-
-    if input == dragInput and dragging then
-
-        local delta = input.Position - dragStart
-
-        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X,
-
-                                   startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-
-    end
-
-end)
-
 end
 
-local function createGUI()
+updateStatus()
 
-local gui = Instance.new("ScreenGui")
+-- =====================================================
+-- CHUYỂN GUI BẰNG RIGHT SHIFT
+-- 1: Fly Menu
+-- 2: Status GUI
+-- 3: Ẩn cả hai
+-- =====================================================
 
-gui.Name = "FlyMenuGui"
+local menuCycle = 0
 
-gui.ResetOnSpawn = false
+local function cycleMenus()
+    menuCycle = (menuCycle % 3) + 1
 
-gui.Parent = player:WaitForChild("PlayerGui")
-
-
-
-guiFrame = Instance.new("Frame")
-
-guiFrame.Size = UDim2.new(0, 300, 0, 430)
-
-guiFrame.Position = UDim2.new(1, -300, 0, 242)
-
-guiFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-
-guiFrame.BorderSizePixel = 0
-
-guiFrame.Visible = true
-
-guiFrame.Parent = gui
-
-
-
-makeDraggable(guiFrame) -- ✅ thêm drag cho GUI
-
-
-
-infoLabels = {}
-
-for i = 1, 10 do
-
-    local lbl = Instance.new("TextLabel")
-
-    lbl.Size = UDim2.new(1, -10, 0, 25)
-
-    lbl.Position = UDim2.new(0, 5, 0, 5 + (i-1) * 30)
-
-    lbl.BackgroundTransparency = 1
-
-    lbl.TextColor3 = Color3.new(1,1,1)
-
-    lbl.Font = Enum.Font.Gotham
-
-    lbl.TextSize = 14
-
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-
-    lbl.Parent = guiFrame
-
-    infoLabels[i] = lbl
-
+    guiFrame.Visible = (menuCycle == 1)
+    statusFrame.Visible = (menuCycle == 2)
 end
 
-
-
--- Buttons
-
-local function createButton(name, text, yPos)
-
-    local btn = Instance.new("TextButton")
-
-    btn.Name = name
-
-    btn.Size = UDim2.new(1, -10, 0, 35)
-
-    btn.Position = UDim2.new(0, 5, 0.02, yPos)
-
-    btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
-
-    btn.TextColor3 = Color3.new(1,1,1)
-
-    btn.Font = Enum.Font.GothamBold
-
-    btn.TextSize = 14
-
-    btn.Text = text
-
-    btn.Parent = guiFrame
-
-    return btn
-
-end
-
-
-
-local increaseBtn = createButton("IncreaseSpeedBtn","faster", 300)
-
-local decreaseBtn = createButton("DecreaseSpeedBtn","slower", 340)
-
-local adjustFollowBtn = createButton("AdjustFollowBtn","adjust distance (max:10)", 380)
-
-
-
-increaseBtn.MouseButton1Click:Connect(function()
-
-    flySpeed += 50
-
-    updateInfo()
-
-end)
-
-decreaseBtn.MouseButton1Click:Connect(function()
-
-    flySpeed = math.max(0, flySpeed-50)
-
-    updateInfo()
-
-end)
-
-adjustFollowBtn.MouseButton1Click:Connect(function()
-
-    followDistance += 1
-
-    if followDistance > 10 then followDistance = 1 end
-
-    updateInfo()
-
-end)
-
-
-
-UserInputService.InputBegan:Connect(function(input)
-
-    if input.KeyCode == Enum.KeyCode.RightShift then
-
-        guiFrame.Visible = not guiFrame.Visible
-
-        updateInfo()
-
-    end
-
-end)
-
-
-
-updateInfo()
-
-end
-
-createGUI()
-
--- Input
+-- =====================================================
+-- INPUT CHUNG
+-- =====================================================
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    local key = input.KeyCode
 
-if gameProcessed then return end
-
-
-
-if input.KeyCode == getKey("R") then
-
-    if flying then stopFlying() else startFlying() end
-
-
-
-elseif input.KeyCode == getKey("V") then
-
-    teleportCharacter("V")
-
-
-
-elseif input.KeyCode == getKey("C") then
-
-    teleportToMouse()
-
-
-
-elseif input.KeyCode == getKey("E") then
-
-    if not following then
-
-        currentTarget = getClosestPlayerInSight()
-
-        if currentTarget then following = true end
-
-    else
-
-        following = false
-
-        currentTarget = nil
-
+    -- Right Ctrl: GUI tọa độ
+    if key == Enum.KeyCode.RightControl then
+        teleportFrame.Visible = not teleportFrame.Visible
+        return
     end
 
+    -- Right Shift: luân phiên hai GUI
+    if key == Enum.KeyCode.RightShift then
+        cycleMenus()
+        return
+    end
 
+    -- Left Ctrl: đổi bộ phím chung
+    if key == Enum.KeyCode.LeftControl then
+        keySet = (keySet == 1) and 2 or 1
+        return
+    end
 
-elseif input.KeyCode == getKey("T") then
+    -- Left Alt + R/E/T/V/C: bật/tắt riêng chức năng
+    if UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) then
+        for _, action in ipairs(actions) do
+            if key == originalKeys[action] then
+                remapped[action] = not remapped[action]
+                return
+            end
+        end
+    end
 
-    setNoclip(not noclipEnabled)
+    if gameProcessed then return end
 
-end
+    -- Xử lý chức năng
+    -- Khi keySet = 2, Delete ưu tiên R > V > C > E > T.
+    for _, action in ipairs(actions) do
+        local activeKey = getKey(action)
 
+        if activeKey and key == activeKey then
+            if action == "R" then
+                if flying then
+                    stopFlying()
+                else
+                    startFlying()
+                end
 
+            elseif action == "V" then
+                teleportCharacter()
 
-updateInfo()
+            elseif action == "C" then
+                teleportToMouse()
 
+            elseif action == "E" then
+                if not following then
+                    currentTarget = getClosestPlayerInSight()
+
+                    if currentTarget then
+                        following = true
+                    end
+                else
+                    following = false
+                    currentTarget = nil
+                end
+
+            elseif action == "T" then
+                setNoclip(not noclipEnabled)
+            end
+
+            break
+        end
+    end
+
+    updateInfo()
+    updateStatus()
 end)
+
+-- Hỗ trợ respawn
+player.CharacterAdded:Connect(function()
+    if flying then
+        task.wait(1)
+
+        if flying then
+            flying = false
+         
