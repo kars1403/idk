@@ -1,0 +1,870 @@
+--[[
+    CLIENT UTILITY SCRIPT - PASTEL GREEN UI
+    R = Fly | V = Teleport V1/V2 | C = Teleport đến chuột
+    E = Follow | T = Noclip
+    Right Ctrl = show/hide coordinate panel
+    Right Shift: Menu -> Status -> Hidden -> Menu
+    Fly Menu switches enable/lock each function key
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+if not player then
+    warn("Script này cần chạy ở phía client.")
+    return
+end
+
+local mouse = player:GetMouse()
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Xóa GUI cũ nếu chạy lại script
+for _, guiName in ipairs({
+    "PositionTeleportGui",
+    "FlyMenuGui",
+    "StatusNeonGui"
+}) do
+    local oldGui = playerGui:FindFirstChild(guiName)
+    if oldGui then
+        oldGui:Destroy()
+    end
+end
+
+-- =====================================================
+-- KEY REMAP
+-- =====================================================
+
+local actions = {"R", "V", "C", "E", "T"}
+
+local originalKeys = {
+    R = Enum.KeyCode.R,
+    V = Enum.KeyCode.V,
+    C = Enum.KeyCode.C,
+    E = Enum.KeyCode.E,
+    T = Enum.KeyCode.T
+}
+
+-- true = chức năng tương ứng đang bị vô hiệu hóa
+local remapped = {
+    R = false,
+    V = false,
+    C = false,
+    E = false,
+    T = false
+}
+
+local function getKey(action)
+    if remapped[action] then
+        return nil
+    end
+
+    return originalKeys[action]
+end
+
+-- =====================================================
+-- TRẠNG THÁI
+-- =====================================================
+
+local flying = false
+local following = false
+local noclipEnabled = false
+
+local flySpeed = 100
+local followDistance = 2
+local currentTarget = nil
+local vToggled = false
+
+local teleportLocations = {
+    V1 = Vector3.new(10000, 0, 0),
+    V2 = Vector3.new(100, 442, -10)
+}
+
+-- =====================================================
+-- NHÂN VẬT
+-- =====================================================
+
+local function getCharacter()
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart")
+    return character, hrp
+end
+
+-- =====================================================
+-- HÀM KÉO THẢ GUI
+-- =====================================================
+
+local function makeDraggable(frame)
+    local dragging = false
+    local dragInput
+    local dragStart
+    local startPos
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    local inputChangedConnection
+    inputChangedConnection = UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    frame.Destroying:Connect(function()
+        if inputChangedConnection then
+            inputChangedConnection:Disconnect()
+        end
+    end)
+end
+
+-- =====================================================
+-- GUI 1: COORDINATES - HACKER THEME
+-- =====================================================
+
+local targetPosition = Vector3.new(0, 0, 0)
+local C = {
+    mint = Color3.fromRGB(20, 255, 160),
+    mintDeep = Color3.fromRGB(0, 190, 125),
+    sky = Color3.fromRGB(20, 42, 52),
+    lavender = Color3.fromRGB(25, 34, 45),
+    pink = Color3.fromRGB(75, 35, 55),
+    cream = Color3.fromRGB(30, 48, 52),
+    ink = Color3.fromRGB(205, 255, 230),
+    white = Color3.fromRGB(12, 22, 28),
+    green = Color3.fromRGB(20, 255, 160),
+    red = Color3.fromRGB(255, 80, 120)
+}
+
+local function roundify(obj, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius or 14)
+    corner.Parent = obj
+    return corner
+end
+
+local function outline(obj, color, thickness)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = color or C.mintDeep
+    stroke.Thickness = thickness or 1.5
+    stroke.Transparency = 0.12
+    stroke.Parent = obj
+    return stroke
+end
+
+local teleportGui = Instance.new("ScreenGui")
+teleportGui.Name = "PositionTeleportGui"
+teleportGui.ResetOnSpawn = false
+teleportGui.Parent = playerGui
+
+local teleportFrame = Instance.new("Frame")
+teleportFrame.Size = UDim2.new(0, 430, 0, 112)
+teleportFrame.Position = UDim2.new(0.5, -215, 1, -132)
+teleportFrame.BackgroundColor3 = C.lavender
+teleportFrame.BorderSizePixel = 0
+teleportFrame.Active = true
+teleportFrame.Parent = teleportGui
+roundify(teleportFrame, 20); outline(teleportFrame, C.sky, 2)
+makeDraggable(teleportFrame)
+
+local coordTitle = Instance.new("TextLabel")
+coordTitle.Size = UDim2.new(1, -16, 0, 25)
+coordTitle.Position = UDim2.new(0, 12, 0, 5)
+coordTitle.BackgroundTransparency = 1
+coordTitle.Text = "//  CURRENT POSITION"
+coordTitle.TextColor3 = C.ink
+coordTitle.Font = Enum.Font.GothamBold
+coordTitle.TextSize = 16
+coordTitle.TextXAlignment = Enum.TextXAlignment.Left
+coordTitle.Parent = teleportFrame
+
+local posLabel = Instance.new("TextLabel")
+posLabel.Size = UDim2.new(1, -20, 0, 22)
+posLabel.Position = UDim2.new(0, 10, 0, 31)
+posLabel.BackgroundTransparency = 1
+posLabel.TextColor3 = C.ink
+posLabel.Font = Enum.Font.Gotham
+posLabel.TextSize = 13
+posLabel.Text = "X: 0  |  Y: 0  |  Z: 0"
+posLabel.Parent = teleportFrame
+
+local function createAxis(prefix, xOffset)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 18, 0, 28)
+    label.Position = UDim2.new(0, xOffset, 0, 68)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = C.ink
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.Text = prefix
+    label.Parent = teleportFrame
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(0, 62, 0, 28)
+    box.Position = UDim2.new(0, xOffset + 20, 0, 66)
+    box.BackgroundColor3 = C.white
+    box.TextColor3 = C.ink
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 13
+    box.Text = "0"
+    box.ClearTextOnFocus = false
+    box.Parent = teleportFrame
+    roundify(box, 8); outline(box, C.sky, 1)
+    return box
+end
+
+local xBox = createAxis("X", 12)
+local yBox = createAxis("Y", 108)
+local zBox = createAxis("Z", 204)
+
+local function pastelButton(parent, text, size, position, color)
+    local btn = Instance.new("TextButton")
+    btn.Size = size
+    btn.Position = position
+    btn.BackgroundColor3 = color or C.mint
+    btn.Text = text
+    btn.TextColor3 = C.ink
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.AutoButtonColor = true
+    btn.Parent = parent
+    roundify(btn, 9); outline(btn, C.white, 1)
+    return btn
+end
+
+local copyPosBtn = pastelButton(teleportFrame, "COPY", UDim2.new(0, 62, 0, 30), UDim2.new(0, 296, 0, 65), C.sky)
+local teleportBtn = pastelButton(teleportFrame, "Teleport", UDim2.new(0, 66, 0, 30), UDim2.new(0, 360, 0, 65), C.mint)
+
+copyPosBtn.MouseButton1Click:Connect(function()
+    local ch = player.Character
+    local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local pos = hrp.Position
+        xBox.Text = string.format("%.0f", pos.X)
+        yBox.Text = string.format("%.0f", pos.Y)
+        zBox.Text = string.format("%.0f", pos.Z)
+    end
+end)
+
+teleportBtn.MouseButton1Click:Connect(function()
+    local x, y, z = tonumber(xBox.Text), tonumber(yBox.Text), tonumber(zBox.Text)
+    if x and y and z then
+        targetPosition = Vector3.new(x, y, z)
+        local _, hrp = getCharacter()
+        hrp.CFrame = CFrame.new(targetPosition)
+    else
+        warn("Invalid coordinates.")
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    local ch = player.Character
+    local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local pos = hrp.Position
+        posLabel.Text = string.format("X: %.1f   |   Y: %.1f   |   Z: %.1f", pos.X, pos.Y, pos.Z)
+    end
+end)
+
+-- =====================================================
+-- FLY
+-- =====================================================
+
+local originalCameraMaxZoom = player.CameraMaxZoomDistance
+local originalCameraMinZoom = player.CameraMinZoomDistance
+player.CameraMaxZoomDistance = 1e9
+player.CameraMinZoomDistance = 0.5
+
+local bg
+local bv
+local flyConn
+
+local function stopFlying()
+    flying = false
+
+    if flyConn then
+        flyConn:Disconnect()
+        flyConn = nil
+    end
+
+    if bg then
+        bg:Destroy()
+        bg = nil
+    end
+
+    if bv then
+        bv:Destroy()
+        bv = nil
+    end
+end
+
+local function startFlying()
+    if flying or false then
+        return
+    end
+
+    local character, hrp = getCharacter()
+    flying = true
+
+    bg = Instance.new("BodyGyro")
+    bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bg.P = 10000
+    bg.CFrame = hrp.CFrame
+    bg.Parent = hrp
+
+    bv = Instance.new("BodyVelocity")
+    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    bv.Velocity = Vector3.zero
+    bv.Parent = hrp
+
+    flyConn = RunService.RenderStepped:Connect(function()
+        if not flying or not bg or not bv then
+            return
+        end
+
+        if not hrp.Parent then
+            stopFlying()
+            return
+        end
+
+        local camera = workspace.CurrentCamera
+        if camera then
+            bg.CFrame = camera.CFrame
+            bv.Velocity = camera.CFrame.LookVector * flySpeed
+        end
+    end)
+end
+
+-- =====================================================
+-- FOLLOW
+-- =====================================================
+
+local function getClosestPlayerInSight()
+    local camera = workspace.CurrentCamera
+    if not camera then
+        return nil
+    end
+
+    local closestPlayer = nil
+    local smallestAngle = math.huge
+
+    for _, otherPlayer in ipairs(Players:GetPlayers()) do
+        if otherPlayer ~= player
+            and otherPlayer.Character
+            and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
+
+            local hrp = otherPlayer.Character.HumanoidRootPart
+            local direction = hrp.Position - camera.CFrame.Position
+
+            if direction.Magnitude > 0 then
+                local dot = math.clamp(
+                    camera.CFrame.LookVector:Dot(direction.Unit),
+                    -1,
+                    1
+                )
+                local angle = math.acos(dot)
+
+                if angle < math.rad(30) and angle < smallestAngle then
+                    smallestAngle = angle
+                    closestPlayer = otherPlayer
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+local followConn
+followConn = RunService.RenderStepped:Connect(function()
+    if false or not following or not currentTarget then
+        return
+    end
+
+    local targetCharacter = currentTarget.Character
+    local myCharacter = player.Character
+
+    local targetHRP = targetCharacter
+        and targetCharacter:FindFirstChild("HumanoidRootPart")
+    local myHRP = myCharacter
+        and myCharacter:FindFirstChild("HumanoidRootPart")
+
+    if not targetHRP then
+        following = false
+        currentTarget = nil
+        return
+    end
+
+    if myHRP then
+        local offset = -targetHRP.CFrame.LookVector * followDistance
+        local newPos = targetHRP.Position + offset
+        myHRP.CFrame = CFrame.new(newPos, targetHRP.Position)
+    end
+end)
+
+-- =====================================================
+-- TELEPORT V / C
+-- =====================================================
+
+local function teleportCharacter()
+    local _, hrp = getCharacter()
+
+    if not vToggled then
+        hrp.CFrame = CFrame.new(teleportLocations.V1)
+        vToggled = true
+    else
+        hrp.CFrame = CFrame.new(teleportLocations.V2)
+        vToggled = false
+    end
+end
+
+local function teleportToMouse()
+    local character = player.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+
+    if hrp and mouse then
+        hrp.CFrame = CFrame.new(
+            mouse.Hit.Position + Vector3.new(0, 3, 0)
+        )
+    end
+end
+
+-- =====================================================
+-- NOCLIP
+-- =====================================================
+
+local noclipConn
+local originalCollision = {}
+
+local function restoreCollision()
+    for part, originalValue in pairs(originalCollision) do
+        if part and part.Parent then
+            part.CanCollide = originalValue
+        end
+    end
+    table.clear(originalCollision)
+end
+
+local function setNoclip(state)
+    noclipEnabled = state
+
+    if noclipConn then
+        noclipConn:Disconnect()
+        noclipConn = nil
+    end
+
+    if state then
+        noclipConn = RunService.Stepped:Connect(function()
+            local character = player.Character
+            if not character then
+                return
+            end
+
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if originalCollision[part] == nil then
+                        originalCollision[part] = part.CanCollide
+                    end
+                    part.CanCollide = false
+                end
+            end
+        end)
+    else
+        restoreCollision()
+    end
+end
+
+-- =====================================================
+-- GUI 2: HACKER MENU + QUICK SHORTCUTS (SCROLLABLE)
+-- =====================================================
+
+local guiFrame
+local keySwitches = {}
+local menuGui = Instance.new("ScreenGui")
+menuGui.Name = "FlyMenuGui"
+menuGui.ResetOnSpawn = false
+menuGui.Parent = playerGui
+
+guiFrame = Instance.new("Frame")
+guiFrame.Size = UDim2.new(0, 350, 0, 430)
+guiFrame.Position = UDim2.new(0, 24, 0.5, -215)
+guiFrame.BackgroundColor3 = C.lavender
+guiFrame.BorderSizePixel = 0
+guiFrame.Active = true
+guiFrame.Parent = menuGui
+roundify(guiFrame, 12); outline(guiFrame, C.mint, 2)
+makeDraggable(guiFrame)
+
+local menuHeader = Instance.new("TextLabel")
+menuHeader.Size = UDim2.new(1, -20, 0, 42)
+menuHeader.Position = UDim2.new(0, 12, 0, 5)
+menuHeader.BackgroundTransparency = 1
+menuHeader.Text = ">_ FLY CONTROL // TERMINAL"
+menuHeader.TextColor3 = C.mint
+menuHeader.Font = Enum.Font.Code
+menuHeader.TextSize = 19
+menuHeader.TextXAlignment = Enum.TextXAlignment.Left
+menuHeader.Parent = guiFrame
+
+local menuHint = Instance.new("TextLabel")
+menuHint.Size = UDim2.new(1, -24, 0, 22)
+menuHint.Position = UDim2.new(0, 12, 0, 43)
+menuHint.BackgroundTransparency = 1
+menuHint.Text = "SYSTEM MODULES  |  TOGGLE KEY ACCESS"
+menuHint.TextColor3 = C.ink
+menuHint.Font = Enum.Font.Code
+menuHint.TextSize = 10
+menuHint.TextXAlignment = Enum.TextXAlignment.Left
+menuHint.Parent = guiFrame
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Name = "MenuScroll"
+scroll.Size = UDim2.new(1, -16, 1, -76)
+scroll.Position = UDim2.new(0, 8, 0, 68)
+scroll.BackgroundColor3 = C.sky
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 5
+scroll.ScrollBarImageColor3 = C.mint
+scroll.CanvasSize = UDim2.new(0, 0, 0, 540)
+scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+scroll.Active = true
+scroll.Parent = guiFrame
+roundify(scroll, 9)
+
+local actionNames = {
+    R = "FLY MODULE", V = "TELEPORT V1 / V2", C = "MOUSE TELEPORT",
+    E = "PLAYER FOLLOW", T = "NOCLIP MODULE"
+}
+
+local function updateKeySwitch(action)
+    local item = keySwitches[action]
+    if not item then return end
+    local enabled = not remapped[action]
+    item.button.Text = enabled and "ENABLED" or "LOCKED"
+    item.button.BackgroundColor3 = enabled and Color3.fromRGB(12, 75, 57) or Color3.fromRGB(75, 35, 55)
+    item.state.Text = enabled and ("[ " .. action .. " ]") or "[ OFF ]"
+    item.state.TextColor3 = enabled and C.mint or C.red
+end
+
+for i, action in ipairs(actions) do
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, -16, 0, 42)
+    row.Position = UDim2.new(0, 8, 0, 8 + (i - 1) * 48)
+    row.BackgroundColor3 = Color3.fromRGB(18, 31, 39)
+    row.BorderSizePixel = 0
+    row.Parent = scroll
+    roundify(row, 7); outline(row, Color3.fromRGB(0, 105, 78), 1)
+
+    local name = Instance.new("TextLabel")
+    name.Size = UDim2.new(0, 170, 1, 0)
+    name.Position = UDim2.new(0, 10, 0, 0)
+    name.BackgroundTransparency = 1
+    name.Text = actionNames[action]
+    name.TextColor3 = C.ink
+    name.Font = Enum.Font.Code
+    name.TextSize = 12
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.Parent = row
+
+    local state = Instance.new("TextLabel")
+    state.Size = UDim2.new(0, 58, 1, 0)
+    state.Position = UDim2.new(1, -150, 0, 0)
+    state.BackgroundTransparency = 1
+    state.TextColor3 = C.mint
+    state.Font = Enum.Font.Code
+    state.TextSize = 10
+    state.Parent = row
+
+    local button = pastelButton(row, "ENABLED", UDim2.new(0, 82, 0, 28), UDim2.new(1, -90, 0.5, -14), Color3.fromRGB(12, 75, 57))
+    button.TextColor3 = C.mint
+    button.Font = Enum.Font.Code
+    keySwitches[action] = {button = button, state = state}
+    button.MouseButton1Click:Connect(function()
+        remapped[action] = not remapped[action]
+        updateKeySwitch(action)
+    end)
+    updateKeySwitch(action)
+end
+
+local shortcutHeader = Instance.new("TextLabel")
+shortcutHeader.Size = UDim2.new(1, -20, 0, 28)
+shortcutHeader.Position = UDim2.new(0, 10, 0, 258)
+shortcutHeader.BackgroundTransparency = 1
+shortcutHeader.Text = "// QUICK SHORTCUTS"
+shortcutHeader.TextColor3 = C.mint
+shortcutHeader.Font = Enum.Font.Code
+shortcutHeader.TextSize = 14
+shortcutHeader.TextXAlignment = Enum.TextXAlignment.Left
+shortcutHeader.Parent = scroll
+
+local shortcutRows = {
+    {"R", "Fly toggle"}, {"V", "Teleport V1 / V2"},
+    {"C", "Teleport to mouse"}, {"E", "Follow nearest player"},
+    {"T", "Noclip toggle"}, {"Right Ctrl", "Show / hide coordinates"},
+    {"Right Shift", "Cycle interface panels"}
+}
+for i, item in ipairs(shortcutRows) do
+    local row = Instance.new("TextLabel")
+    row.Size = UDim2.new(1, -22, 0, 23)
+    row.Position = UDim2.new(0, 12, 0, 290 + (i - 1) * 25)
+    row.BackgroundTransparency = 1
+    row.Text = string.format("[ %s ]    %s", item[1], item[2])
+    row.TextColor3 = C.ink
+    row.Font = Enum.Font.Code
+    row.TextSize = 11
+    row.TextXAlignment = Enum.TextXAlignment.Left
+    row.Parent = scroll
+end
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(1, -20, 0, 22)
+speedLabel.Position = UDim2.new(0, 10, 0, 472)
+speedLabel.BackgroundTransparency = 1
+speedLabel.Text = "FLY SPEED: " .. tostring(flySpeed) .. "  |  FOLLOW DIST: " .. tostring(followDistance)
+speedLabel.TextColor3 = C.mint
+speedLabel.Font = Enum.Font.Code
+speedLabel.TextSize = 10
+speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+speedLabel.Parent = scroll
+
+-- Requested order: -Speed first, then +Speed
+local slowerBtn = pastelButton(scroll, "- SPEED", UDim2.new(0, 94, 0, 30), UDim2.new(0, 10, 0, 500), Color3.fromRGB(75, 35, 55))
+local fasterBtn = pastelButton(scroll, "+ SPEED", UDim2.new(0, 94, 0, 30), UDim2.new(0, 112, 0, 500), Color3.fromRGB(12, 75, 57))
+local distanceBtn = pastelButton(scroll, "FOLLOW +", UDim2.new(0, 112, 0, 30), UDim2.new(0, 214, 0, 500), Color3.fromRGB(32, 54, 75))
+for _, btn in ipairs({slowerBtn, fasterBtn, distanceBtn}) do
+    btn.Font = Enum.Font.Code
+    btn.TextColor3 = C.mint
+end
+local function refreshSpeedLabel()
+    speedLabel.Text = "FLY SPEED: " .. flySpeed .. "  |  FOLLOW DIST: " .. followDistance
+end
+fasterBtn.MouseButton1Click:Connect(function() flySpeed += 50; refreshSpeedLabel() end)
+slowerBtn.MouseButton1Click:Connect(function() flySpeed = math.max(0, flySpeed - 50); refreshSpeedLabel() end)
+distanceBtn.MouseButton1Click:Connect(function() followDistance = followDistance % 10 + 1; refreshSpeedLabel() end)
+
+-- =====================================================
+-- GUI 3: STATUS (FLY + NOCLIP ONLY)
+-- =====================================================
+
+local statusGui = Instance.new("ScreenGui")
+statusGui.Name = "StatusNeonGui"
+statusGui.ResetOnSpawn = false
+statusGui.Parent = playerGui
+
+local statusFrame = Instance.new("Frame")
+statusFrame.Size = UDim2.new(0, 250, 0, 145)
+statusFrame.Position = UDim2.new(1, -275, 0, 28)
+statusFrame.BackgroundColor3 = C.lavender
+statusFrame.BorderSizePixel = 0
+statusFrame.Visible = false
+statusFrame.Active = true
+statusFrame.Parent = statusGui
+roundify(statusFrame, 12); outline(statusFrame, C.mint, 2)
+makeDraggable(statusFrame)
+
+local statusTitle = Instance.new("TextLabel")
+statusTitle.Size = UDim2.new(1, -18, 0, 36)
+statusTitle.Position = UDim2.new(0, 10, 0, 5)
+statusTitle.BackgroundTransparency = 1
+statusTitle.Text = ">_ SYSTEM STATUS"
+statusTitle.TextColor3 = C.mint
+statusTitle.Font = Enum.Font.Code
+statusTitle.TextSize = 18
+statusTitle.TextXAlignment = Enum.TextXAlignment.Left
+statusTitle.Parent = statusFrame
+
+local statusRows = {}
+local function createStatusRow(action, labelText, y)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, -18, 0, 34)
+    row.Position = UDim2.new(0, 9, 0, y)
+    row.BackgroundColor3 = Color3.fromRGB(18, 31, 39)
+    row.BorderSizePixel = 0
+    row.Parent = statusFrame
+    roundify(row, 7)
+    local name = Instance.new("TextLabel")
+    name.Size = UDim2.new(1, -90, 1, 0)
+    name.Position = UDim2.new(0, 10, 0, 0)
+    name.BackgroundTransparency = 1
+    name.Text = labelText
+    name.TextColor3 = C.ink
+    name.Font = Enum.Font.Code
+    name.TextSize = 13
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.Parent = row
+    local state = Instance.new("TextLabel")
+    state.Size = UDim2.new(0, 70, 1, 0)
+    state.Position = UDim2.new(1, -76, 0, 0)
+    state.BackgroundTransparency = 1
+    state.Font = Enum.Font.Code
+    state.TextSize = 12
+    state.Parent = row
+    statusRows[action] = state
+end
+createStatusRow("R", "FLY", 48)
+createStatusRow("T", "NOCLIP", 88)
+
+local function updateStatus()
+    local states = {R = flying, T = noclipEnabled}
+    for action, isOn in pairs(states) do
+        local label = statusRows[action]
+        if label then
+            label.Text = isOn and "ACTIVE" or "OFFLINE"
+            label.TextColor3 = isOn and C.mint or C.red
+        end
+    end
+end
+updateStatus()
+
+-- =====================================================
+-- RIGHT SHIFT CYCLE: MENU -> STATUS -> HIDDEN -> MENU
+-- =====================================================
+
+local menuCycle = 0 -- initial state is Menu visible
+local function cycleMenus()
+    menuCycle = (menuCycle % 3) + 1
+    if menuCycle == 1 then
+        guiFrame.Visible = false
+        statusFrame.Visible = true
+    elseif menuCycle == 2 then
+        guiFrame.Visible = false
+        statusFrame.Visible = false
+    else
+        guiFrame.Visible = true
+        statusFrame.Visible = false
+    end
+end
+
+-- =====================================================
+-- RESET STATES WHEN CHARACTER RESPAWNS
+-- =====================================================
+
+player.CharacterAdded:Connect(function()
+    stopFlying()
+
+    if noclipEnabled then
+        setNoclip(false)
+    else
+        restoreCollision()
+    end
+
+    following = false
+    currentTarget = nil
+    vToggled = false
+
+    task.wait(0.25)
+    updateStatus()
+end)
+
+-- =====================================================
+-- INPUT CHUNG
+-- =====================================================
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    local key = input.KeyCode
+
+    -- Interface hotkeys
+    if key == Enum.KeyCode.RightControl then
+        teleportFrame.Visible = not teleportFrame.Visible
+        return
+    end
+
+    if key == Enum.KeyCode.RightShift then
+        cycleMenus()
+        return
+    end
+
+    if UserInputService:GetFocusedTextBox() then
+        return
+    end
+
+    for _, action in ipairs(actions) do
+        local activeKey = getKey(action)
+
+        if activeKey and key == activeKey then
+            if action == "R" then
+                if flying then
+                    stopFlying()
+                else
+                    startFlying()
+                end
+
+            elseif action == "V" then
+                teleportCharacter()
+
+            elseif action == "C" then
+                teleportToMouse()
+
+            elseif action == "E" then
+                if not following then
+                    currentTarget = getClosestPlayerInSight()
+                    if currentTarget then
+                        following = true
+                    end
+                else
+                    following = false
+                    currentTarget = nil
+                end
+
+            elseif action == "T" then
+                setNoclip(not noclipEnabled)
+            end
+
+            break
+        end
+    end
+
+    updateStatus()
+end)
+
+-- =====================================================
+-- CLEANUP WHEN GUI IS REMOVED / SCRIPT ENDS
+-- =====================================================
+
+if typeof(script) == "Instance" then
+script.Destroying:Connect(function()
+    stopFlying()
+
+    if followConn then
+        followConn:Disconnect()
+    end
+
+    if noclipConn then
+        noclipConn:Disconnect()
+        noclipConn = nil
+    end
+
+    restoreCollision()
+
+    player.CameraMaxZoomDistance = originalCameraMaxZoom
+    player.CameraMinZoomDistance = originalCameraMinZoom
+end)
+end
+
+print("[Client Utility] Script loaded successfully")
+warn("[Client Utility] Loaded. RightShift: Menu > Status > Hidden, RightCtrl: Coordinates, R/V/C/E/T: modules.")
